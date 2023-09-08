@@ -1,0 +1,14 @@
+[package]
+name = "the-lock-tui"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+the-lock-lib = { path = "../the-lock-lib", features = ["signers-list"] }
+serialize-with-password = { path = "../other-libs/serialize-with-password", features = ["serde"] }
+dialoguer = { version = "0.10.4", default-features = false, features = ["password", "fuzzy-select"] }
+
+[profile.dev]
+opt-level = 3
