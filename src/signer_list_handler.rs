@@ -1,8 +1,8 @@
 use dialoguer::{Select, Input, FuzzySelect};
-use the_lock_lib::{signers_list::SignersList, rsa::RsaPublicKey};
+use the_lock_lib::signers_list::SignersList;
 use crate::key_handler::public_rsa_key_interactions;
 
-use crate::utils::{create_signers_list, open_signer_list, read};
+use crate::utils::{create_signers_list, open_signer_list, get_public_rsa_key};
 
 pub fn handle_signers() {
     let mut pos = 0;
@@ -75,7 +75,7 @@ fn signers_list_manipulation(mut signers_list: SignersList) {
                 .expect("IO error");
                 match signers_list.add_signer(
                     &name,
-                    &match read::<RsaPublicKey>() {
+                    &match get_public_rsa_key() {
                         Some(key) => key,
                         None => continue,
                     },

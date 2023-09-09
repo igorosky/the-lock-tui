@@ -1,8 +1,8 @@
 use std::{path::Path, fs::{File, create_dir}, io::{Read, Write}};
 
-use dialoguer::{Confirm, Password, Input};
+use dialoguer::{Confirm, Password, Input, Select};
 use serialize_with_password::{Serialize, Deserialize, serialize_serde_no_pass, serialize_serde, is_encrypted, deserialize_serde, deserialize_serde_no_pass};
-use the_lock_lib::signers_list::SignersList;
+use the_lock_lib::{signers_list::SignersList, rsa::{RsaPublicKey, RsaPrivateKey}, asymetric_key::{PrivateKey, PublicKey}, EncryptedFile, directory_content::DirectoryContent};
 
 fn delete_path<P: AsRef<Path>>(path: P) {
     match (path.as_ref().is_file(), path.as_ref().is_dir()) {
@@ -13,7 +13,7 @@ fn delete_path<P: AsRef<Path>>(path: P) {
 }
 
 #[inline]
-fn get_path() -> String {
+pub fn get_path() -> String {
     Input::<String>::new().with_prompt("File path").interact().expect("IO error")
 }
 
@@ -74,7 +74,7 @@ pub fn save<T: Serialize>(val: &T) -> bool {
 }
 
 #[inline]
-fn check_path() -> Option<Box<Path>> {
+pub fn check_path() -> Option<Box<Path>> {
     let src = get_path();
     let path = Path::new(&src);
     if !path.exists() {
@@ -182,4 +182,157 @@ pub fn open_signer_list() -> Option<SignersList> {
             None
         }
     }
+}
+
+#[inline]
+pub fn get_private_key() -> Option<PrivateKey> {
+    read::<PrivateKey>()
+}
+
+pub fn get_public_key() -> Option<PublicKey> {
+    match Select::new()
+            .items(&[
+                "From public key",
+                "From private key",
+                "Exit",
+            ])
+            .default(0)
+            .interact()
+            .expect("IO error") {
+        0 => read::<PublicKey>(),
+        1 => read::<PrivateKey>().map(|key: PrivateKey| key.get_public_key()),
+        _ => None,
+    }
+}
+
+pub fn get_private_rsa_key() -> Option<RsaPrivateKey> {
+    match Select::new()
+            .items(&[
+                "From RSA private key",
+                "From private key",
+                "Exit",
+            ])
+            .default(0)
+            .interact()
+            .expect("IO error") {
+        0 => read::<RsaPrivateKey>(),
+        1 => read::<PrivateKey>().map(|key: PrivateKey| key.get_rsa_private_key().to_owned()),
+        _ => None,
+    }
+}
+
+pub fn get_public_rsa_key() -> Option<RsaPublicKey> {
+    match Select::new()
+            .items(&[
+                "From RSA public key",
+                "From RSA private key",
+                "From private key",
+                "From public key",
+                "Exit",
+            ])
+            .default(0)
+            .interact()
+            .expect("IO error") {
+        0 => read::<RsaPublicKey>(),
+        1 => read::<RsaPrivateKey>().map(|key: RsaPrivateKey| key.to_public_key()),
+        2 => read::<PrivateKey>().map(|key: PrivateKey| key.get_rsa_public_key()),
+        3 => read::<PublicKey>().map(|key: PublicKey| key.get_rsa_public_key().to_owned()),
+        _ => None,
+    }
+}
+
+#[inline]
+pub fn create_file() -> Option<File> {
+    File::create(prepate_path()?).ok()
+}
+
+#[inline]
+pub fn create_file_with_default(value: String) -> Option<File> {
+    File::create({
+        let target = Input::<String>::new().with_prompt("File path").default(value).interact().expect("IO error");
+        let path = Path::new(&target);
+        if path.exists() {
+            if Confirm::new().with_prompt(format!("Path {target} already exists. Delete it?")).interact().expect("IO error") {
+                delete_path(path);
+            }
+            else {
+                return None;
+            }
+        }
+        Box::from(path)
+    }).ok()
+}
+
+#[inline]
+pub fn open_file() -> Option<File> {
+    File::open(check_path()?).ok()
+}
+
+pub fn create_encrypted_file() -> Option<EncryptedFile> {
+    match EncryptedFile::new(match prepate_path() {
+        Some(path) => path,
+        None => return None,
+    }) {
+        Ok(ef) => Some(ef),
+        Err(err) => {
+            println!("Unhandled error while trying to create encrypted file - {err}");
+            None
+        }
+    }
+}
+
+pub fn open_encrypted_file() -> Option<EncryptedFile> {
+    let path = match check_path() {
+        Some(path) => {
+            if !path.is_file() {
+                println!("It's not a file");
+                return None;
+            }
+            path
+        }
+        None => return None,
+    };
+    match EncryptedFile::new(path) {
+        Ok(ef) => Some(ef),
+        Err(err) => {
+            println!("Unhandled error while trying to open encrypted file - {err}");
+            None
+        }
+    }
+}
+
+const STRAIGHT_RIGHT: char = '├';
+const STRAIGHT: char = '│';
+const UP_RIGHT: char = '└';
+const SPACE: char = ' ';
+const DIRECTORY_PREFIX: &str = "<DIR>";
+const FILE_PREFIX: &str = "<FILE>";
+
+fn list_content_helper(content: &DirectoryContent, prefix: &str) {
+    let last_file = content.get_files_iter().rev().take(1).next();
+    let last_dir = if last_file.is_some() {
+        None
+    }
+    else {
+        content.get_dir_iter().rev().take(1).next()
+    };
+    for (name, dir) in content.get_dir_iter().rev().skip(last_dir.is_some() as usize).rev() {
+        println!("{prefix}{STRAIGHT_RIGHT}{DIRECTORY_PREFIX} {name}");
+        list_content_helper(dir, &format!("{prefix}{STRAIGHT}"));
+    }
+    if let Some((name, dir)) = last_dir {
+        println!("{prefix}{UP_RIGHT}{DIRECTORY_PREFIX} {name}");
+        list_content_helper(dir, &format!("{prefix}{SPACE}"));
+    }
+    for (name, file) in content.get_files_iter().rev().skip(1).rev() {
+        println!("{prefix}{STRAIGHT_RIGHT}{FILE_PREFIX} {name} has_content: {}, has_key: {}, has_digest: {}, has_signature: {}", file.has_content(), file.has_key(), file.has_digest(), file.is_signed());
+    }
+    if let Some((name, file)) = last_file {
+        println!("{prefix}{UP_RIGHT}{FILE_PREFIX} {name} has_content: {}, has_key: {}, has_digest: {}, has_signature: {}", file.has_content(), file.has_key(), file.has_digest(), file.is_signed());
+    }
+}
+
+pub fn list_content(content: &DirectoryContent) {
+    list_content_helper(content, "");
+    println!();
 }

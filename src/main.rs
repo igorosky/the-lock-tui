@@ -1,4 +1,7 @@
 extern crate dialoguer;
+extern crate the_lock_lib;
+extern crate serialize_with_password;
+
 mod utils;
 mod key_handler;
 mod signer_list_handler;

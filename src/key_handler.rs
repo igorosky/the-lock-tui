@@ -24,6 +24,7 @@ pub fn handle_key() {
                 private_key_interactions(match PrivateKey::new(
                     Input::new()
                             .with_prompt("Key size")
+                            .default(asymetric_key::MIN_RSA_KEY_SIZE.to_string())
                             .validate_with(|input: &String| -> Result<(), &str> {
                                 match input.parse::<usize>() {
                                     Ok(val) => match val.cmp(&asymetric_key::MIN_RSA_KEY_SIZE) {
