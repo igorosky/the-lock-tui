@@ -1,8 +1,8 @@
-use std::{path::Path, fs::{File, create_dir}, io::{Read, Write}};
+use std::{path::Path, fs::{File, create_dir}, io::{Read, Write}, ops::RangeBounds};
 
 use dialoguer::{Confirm, Password, Input, Select};
 use serialize_with_password::{Serialize, Deserialize, serialize_serde_no_pass, serialize_serde, is_encrypted, deserialize_serde, deserialize_serde_no_pass};
-use the_lock_lib::{signers_list::SignersList, rsa::{RsaPublicKey, RsaPrivateKey}, asymetric_key::{PrivateKey, PublicKey}, EncryptedFile, directory_content::DirectoryContent};
+use the_lock_lib::{signers_list::SignersList, rsa::{RsaPublicKey, RsaPrivateKey}, asymetric_key::{PrivateKey, PublicKey}, EncryptedFile, directory_content::DirectoryContent, FileOptions};
 
 fn delete_path<P: AsRef<Path>>(path: P) {
     match (path.as_ref().is_file(), path.as_ref().is_dir()) {
@@ -13,13 +13,31 @@ fn delete_path<P: AsRef<Path>>(path: P) {
 }
 
 #[inline]
-pub fn get_path() -> String {
-    Input::<String>::new().with_prompt("File path").interact().expect("IO error")
+pub fn get_number_in_range<T, R: RangeBounds<T>>(prompt: &str, range: R, default: T) -> T 
+    where T: std::str::FromStr + std::fmt::Display + PartialEq + PartialOrd, <T as std::str::FromStr>::Err: std::fmt::Debug {
+    Input::<String>::new().with_prompt(prompt).default(default.to_string()).validate_with(|v: &String| -> Result<(), String> {
+        if let Ok(v) = v.parse::<T>() {
+            if range.contains(&v) {
+                Ok(())
+            }
+            else {
+                Err(format!("Value out of range"))
+            }
+        }
+        else {
+            Err("It's not an number".to_owned())
+        }
+    }).interact().expect("IO error").parse().expect("Value should be validated")
+}
+
+#[inline]
+pub fn get_path(prompt: &str) -> String {
+    Input::<String>::new().with_prompt(prompt).interact().expect("IO error")
 }
 
 #[inline]
 fn prepate_path() -> Option<Box<Path>> {
-    let target = get_path();
+    let target = get_path("File path");
     let path = Path::new(&target);
     if path.exists() {
         if Confirm::new().with_prompt(format!("Path {target} already exists. Delete it?")).interact().expect("IO error") {
@@ -74,8 +92,8 @@ pub fn save<T: Serialize>(val: &T) -> bool {
 }
 
 #[inline]
-pub fn check_path() -> Option<Box<Path>> {
-    let src = get_path();
+pub fn check_path(prompt: &str) -> Option<Box<Path>> {
+    let src = get_path(prompt);
     let path = Path::new(&src);
     if !path.exists() {
         println!("Path {src} does't exists");
@@ -84,8 +102,8 @@ pub fn check_path() -> Option<Box<Path>> {
     Some(Box::from(path))
 }
 
-pub fn read<T: for<'a> Deserialize<'a>>() -> Option<T> {
-    let path = match check_path() {
+pub fn read<T: for<'a> Deserialize<'a>>(prompt: &str) -> Option<T> {
+    let path = match check_path(prompt) {
         Some(path) => path,
         None => return None,
     };
@@ -167,7 +185,7 @@ pub fn create_signers_list() -> Option<SignersList> {
 }
 
 pub fn open_signer_list() -> Option<SignersList> {
-    let path = match check_path() {
+    let path = match check_path("Signers list path") {
         Some(path) => path,
         None => return None,
     };
@@ -186,7 +204,7 @@ pub fn open_signer_list() -> Option<SignersList> {
 
 #[inline]
 pub fn get_private_key() -> Option<PrivateKey> {
-    read::<PrivateKey>()
+    read::<PrivateKey>("Private key path")
 }
 
 pub fn get_public_key() -> Option<PublicKey> {
@@ -197,10 +215,11 @@ pub fn get_public_key() -> Option<PublicKey> {
                 "Exit",
             ])
             .default(0)
+            .with_prompt("Public key source")
             .interact()
             .expect("IO error") {
-        0 => read::<PublicKey>(),
-        1 => read::<PrivateKey>().map(|key: PrivateKey| key.get_public_key()),
+        0 => read::<PublicKey>("Public key path"),
+        1 => read::<PrivateKey>("Private key path").map(|key: PrivateKey| key.get_public_key()),
         _ => None,
     }
 }
@@ -213,10 +232,11 @@ pub fn get_private_rsa_key() -> Option<RsaPrivateKey> {
                 "Exit",
             ])
             .default(0)
+            .with_prompt("Private RSA key source")
             .interact()
             .expect("IO error") {
-        0 => read::<RsaPrivateKey>(),
-        1 => read::<PrivateKey>().map(|key: PrivateKey| key.get_rsa_private_key().to_owned()),
+        0 => read::<RsaPrivateKey>("Private RSA key path"),
+        1 => read::<PrivateKey>("Private key path").map(|key: PrivateKey| key.get_rsa_private_key().to_owned()),
         _ => None,
     }
 }
@@ -231,12 +251,13 @@ pub fn get_public_rsa_key() -> Option<RsaPublicKey> {
                 "Exit",
             ])
             .default(0)
+            .with_prompt("Public RSA key source")
             .interact()
             .expect("IO error") {
-        0 => read::<RsaPublicKey>(),
-        1 => read::<RsaPrivateKey>().map(|key: RsaPrivateKey| key.to_public_key()),
-        2 => read::<PrivateKey>().map(|key: PrivateKey| key.get_rsa_public_key()),
-        3 => read::<PublicKey>().map(|key: PublicKey| key.get_rsa_public_key().to_owned()),
+        0 => read::<RsaPublicKey>("Public RSA key path"),
+        1 => read::<RsaPrivateKey>("Private RSA key path").map(|key: RsaPrivateKey| key.to_public_key()),
+        2 => read::<PrivateKey>("Private key path").map(|key: PrivateKey| key.get_rsa_public_key()),
+        3 => read::<PublicKey>("Public key path").map(|key: PublicKey| key.get_rsa_public_key().to_owned()),
         _ => None,
     }
 }
@@ -264,8 +285,8 @@ pub fn create_file_with_default(value: String) -> Option<File> {
 }
 
 #[inline]
-pub fn open_file() -> Option<File> {
-    File::open(check_path()?).ok()
+pub fn open_file(prompt: &str) -> Option<File> {
+    File::open(check_path(prompt)?).ok()
 }
 
 pub fn create_encrypted_file() -> Option<EncryptedFile> {
@@ -282,7 +303,7 @@ pub fn create_encrypted_file() -> Option<EncryptedFile> {
 }
 
 pub fn open_encrypted_file() -> Option<EncryptedFile> {
-    let path = match check_path() {
+    let path = match check_path("Encrypted file path") {
         Some(path) => {
             if !path.is_file() {
                 println!("It's not a file");
@@ -335,4 +356,54 @@ fn list_content_helper(content: &DirectoryContent, prefix: &str) {
 pub fn list_content(content: &DirectoryContent) {
     list_content_helper(content, "");
     println!();
+}
+
+pub fn get_zip_file_options() -> FileOptions {
+    use the_lock_lib::CompressionMethod;
+    loop {
+        return match Confirm::new()
+                .with_prompt("Use default zip file options")
+                .interact()
+                .expect("IO error") {
+            true => FileOptions::default(),
+            false => {
+                match Select::new()
+                        .with_prompt("Compression method")
+                        .items(&[
+                            "Deflated",
+                            "Stored",
+                            "Bzip2",
+                            "Zstd",
+                            "back",
+                        ])
+                        .default(0)
+                        .interact()
+                        .expect("IO error") {
+                    0 => FileOptions::default()
+                            .compression_method(CompressionMethod::Deflated)
+                            .compression_level(Some(get_number_in_range("Compression rate [0;9]", 0..=9, 6))),
+                    1 => FileOptions::default()
+                            .compression_method(CompressionMethod::Stored),
+                    2 => FileOptions::default()
+                            .compression_method(CompressionMethod::Bzip2)
+                            .compression_level(Some(get_number_in_range("Compression rate [0;9]", 0..=9, 6))),
+                    3 => FileOptions::default()
+                            .compression_method(CompressionMethod::Bzip2)
+                            .compression_level(Some(get_number_in_range("Compression rate [-7;22]", -7..=22, 3))),               
+                    _ => continue,
+                }
+            }
+        };
+    }
+}
+
+pub fn get_name_from_path(path: &str) -> &str {
+    let mut p = path.len();
+    for c in path.chars().rev() {
+        if c == '/' || c == '\\' {
+            break;
+        }
+        p -= 1;
+    }
+    path.get(p..).unwrap()
 }

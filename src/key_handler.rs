@@ -1,7 +1,7 @@
-use dialoguer::{Select, Input};
-use the_lock_lib::{asymetric_key::{PrivateKey, self, PublicKey}, rsa::{RsaPrivateKey, RsaPublicKey}};
+use dialoguer::Select;
+use the_lock_lib::{asymetric_key::{PrivateKey, PublicKey, MIN_RSA_KEY_SIZE}, rsa::{RsaPrivateKey, RsaPublicKey}};
 
-use crate::utils::{save, read};
+use crate::utils::{save, read, get_number_in_range};
 
 pub fn handle_key() {
     let mut pos = 0;
@@ -22,20 +22,7 @@ pub fn handle_key() {
             0 => {
                 println!("Creating new private key");
                 private_key_interactions(match PrivateKey::new(
-                    Input::new()
-                            .with_prompt("Key size")
-                            .default(asymetric_key::MIN_RSA_KEY_SIZE.to_string())
-                            .validate_with(|input: &String| -> Result<(), &str> {
-                                match input.parse::<usize>() {
-                                    Ok(val) => match val.cmp(&asymetric_key::MIN_RSA_KEY_SIZE) {
-                                        std::cmp::Ordering::Less => Err("Value is too small"),
-                                        _ => Ok(()),
-                                    }
-                                    Err(_) => Err("It's not a number"),
-                                }
-                            })
-                            .interact()
-                            .expect("IO error").parse::<usize>().expect("Number was expected")
+                    get_number_in_range("Key size", MIN_RSA_KEY_SIZE..usize::MAX, MIN_RSA_KEY_SIZE)
                     ) {
                         Ok(ans) => ans,
                         Err(err) => {
@@ -45,26 +32,22 @@ pub fn handle_key() {
                     });
             },
             1 => {
-                println!("Opening private key");
-                if let Some(key) = read::<PrivateKey>() {
+                if let Some(key) = read::<PrivateKey>("Private key path") {
                     private_key_interactions(key);
                 }
             },
             2 => {
-                println!("Opening public key");
-                if let Some(key) = read::<PublicKey>() {
+                if let Some(key) = read::<PublicKey>("Public key path") {
                     public_key_interactions(key);
                 }
             },
             3 => {
-                println!("Opening private RSA key");
-                if let Some(key) = read::<RsaPrivateKey>() {
+                if let Some(key) = read::<RsaPrivateKey>("Private RSA key path") {
                     private_rsa_key_interactions(key);
                 }
             },
             4 => {
-                println!("Opening public RSA key");
-                if let Some(key) = read::<RsaPublicKey>() {
+                if let Some(key) = read::<RsaPublicKey>("Public RSA key path") {
                     public_rsa_key_interactions(key);
                 }
             },

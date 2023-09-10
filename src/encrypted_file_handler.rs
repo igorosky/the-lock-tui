@@ -1,7 +1,7 @@
 use dialoguer::{Select, FuzzySelect, MultiSelect};
 use the_lock_lib::{EncryptedFile, directory_content::DirectoryContent, DecryptFileResult, DecryptFileAndVerifyResult, DecryptFileAndFindSignerResult};
 
-use crate::utils::{open_file, get_path, get_public_key, get_private_rsa_key, create_encrypted_file, open_encrypted_file, check_path, get_private_key, create_file_with_default, get_public_rsa_key, open_signer_list, list_content, create_file};
+use crate::utils::{open_file, get_path, get_public_key, get_private_rsa_key, create_encrypted_file, open_encrypted_file, check_path, get_private_key, create_file_with_default, get_public_rsa_key, open_signer_list, list_content, create_file, get_zip_file_options, get_name_from_path};
 
 #[inline]
 fn get_encryption_mode() -> usize {
@@ -114,6 +114,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                     "Decrypt directory",
                     "List Content",
                     "Clone without",
+                    "Set zip file options",
                     "Exit",
                 ])
                 .default(pos)
@@ -122,28 +123,31 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
         match pos {
             0 => {
                 println!("Add File");
-                let sign = match get_encryption_mode() {
-                    0 => false,
-                    1 => true,
-                    _ => continue,
-                };
-                let src = match open_file() {
+                let src = match open_file("Path to file which is suppoused to be encrypted") {
                     Some(file) => file,
                     None => continue,
                 };
-                let dst_path = get_path();
+                match src.metadata() {
+                    Ok(metadata) => encrypted_file.set_zip_file_options(encrypted_file.zip_file_options().large_file(metadata.len() >= 4*1024*1024*1024)),
+                    Err(err) => {
+                        println!("Couldn't read file size - {err}");
+                        continue;
+                    }
+                }
+                let dst_path = get_path("Destination path");
                 let public_key = match get_public_key() {
                     Some(key) => key,
                     None => continue,
                 };
-                let result = if sign {
-                    encrypted_file.add_file_and_sign(src, &dst_path, &public_key, &match get_private_rsa_key() {
-                        Some(key) => key,
-                        None => continue,
-                    })
-                }
-                else {
-                    encrypted_file.add_file(src, &dst_path, &public_key)
+                let result = match get_encryption_mode() {
+                    0 => encrypted_file.add_file(src, &dst_path, &public_key),
+                    1 => {
+                        encrypted_file.add_file_and_sign(src, &dst_path, &public_key, &match get_private_rsa_key() {
+                            Some(key) => key,
+                            None => continue,
+                        })
+                    },
+                    _ => continue,
                 };
                 match result {
                     Ok(()) => println!("File successfully added"),
@@ -152,7 +156,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
             }
             1 => {
                 println!("Add Directory");
-                    let src = match check_path() {
+                    let src = match check_path("Path to directory which is suppoused to be encrypted") {
                         Some(dir) => {
                             if !dir.is_dir() {
                                 println!("It's not an directory");
@@ -162,7 +166,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                         },
                         None => continue,
                     };
-                    let dst_path = get_path();
+                    let dst_path = get_path("Destination path");
                     let public_key = match get_public_key() {
                         Some(key) => key,
                         None => continue,
@@ -206,7 +210,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                         .interact()
                         .expect("IO error")].clone()
                 };
-                let dst = match create_file_with_default("value".to_owned()) {
+                let dst = match create_file_with_default(get_name_from_path(&src).to_owned()) {
                     Some(file) => file,
                     None => continue,
                 };
@@ -241,7 +245,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                         .interact()
                         .expect("IO error")].clone()
                 };
-                let dst = match check_path() {
+                let dst = match check_path("Output path") {
                     Some(path) => path,
                     None => continue,
                 };
@@ -323,6 +327,10 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                     Ok(()) => println!("File has been copied with indicated files omited"),
                     Err(err) => println!("Unhandled error while copying files - {err}"),
                 }
+            }
+            6 => {
+                println!("!!! Zip file options lasts til you leave this menu !!!");
+                encrypted_file.set_zip_file_options(get_zip_file_options());
             }
             _ => return,
         }
