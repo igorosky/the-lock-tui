@@ -73,19 +73,19 @@ pub fn save<T: Serialize>(val: &T) -> bool {
                     match file.write_all(&data) {
                         Ok(()) => true,
                         Err(err) => {
-                            println!("Couldn't save data to file - {}", err);
+                            println_error(&format!("Couldn't save data to file - {}", err));
                             false
                         }
                     }
                 }
                 Err(err) => {
-                    println!("Couldn't create a file - {}", err);
+                    println_error(&format!("Couldn't create a file - {}", err));
                     false
                 }
             }
         }
         Err(err) => {
-            println!("Unexpected error while saving file - {}", err);
+            println_error(&format!("Unexpected error while saving file - {}", err));
             false
         }
     }
@@ -96,7 +96,7 @@ pub fn check_path(prompt: &str) -> Option<Box<Path>> {
     let src = get_path(prompt);
     let path = Path::new(&src);
     if !path.exists() {
-        println!("Path {src} does't exists");
+        println_error(&format!("Path {src} does't exists"));
         return None;
     }
     Some(Box::from(path))
@@ -108,19 +108,19 @@ pub fn read<T: for<'a> Deserialize<'a>>(prompt: &str) -> Option<T> {
         None => return None,
     };
     if !path.is_file() {
-        println!("It's is not a file");
+        println_error(&format!("It's is not a file"));
         return None;
     }
     let mut buf = Vec::new();
     let mut file = match File::open(path) {
         Ok(file) => file,
         Err(err) => {
-            println!("Unhandled error while opening file - {err}");
+            println_error(&format!("Unhandled error while opening file - {err}"));
             return None;
         }
     };
     if let Err(err) = file.read_to_end(&mut buf) {
-        println!("Unhandled error while reading file - {err}");
+        println_error(&format!("Unhandled error while reading file - {err}"));
         return None;
     }
     let is_enc = match is_encrypted(&buf) {
@@ -130,7 +130,7 @@ pub fn read<T: for<'a> Deserialize<'a>>(prompt: &str) -> Option<T> {
             return None;
         }
         Err(err) => {
-            println!("Unexpected error while checking if file is encrypted - {err}");
+            println_error(&format!("Unexpected error while checking if file is encrypted - {err}"));
             return None;
         }
     };
@@ -158,14 +158,14 @@ pub fn read<T: for<'a> Deserialize<'a>>(prompt: &str) -> Option<T> {
                 }
             }
             if let Err(err) = ans.as_ref() {
-                println!("Unhandled error while deserializing file - {err}");
+                println_error(&format!("Unhandled error while deserializing file - {err}"));
             }
             ans.ok()
         }
         false => match deserialize_serde_no_pass(&buf) {
             Ok(ans) => Some(ans),
             Err(err) => {
-                println!("Unhandled error while deserializing file - {err}");
+                println_error(&format!("Unhandled error while deserializing file - {err}"));
                 None
             }
         }
@@ -178,7 +178,7 @@ pub fn create_signers_list() -> Option<SignersList> {
         None => return None,
     };
     if let Err(err) = create_dir(path) {
-        println!("Couldn't create a directory for signers list - {}", err);
+        println_error(&format!("Couldn't create a directory for signers list - {}", err));
         return None;
     }
     SignersList::new(Path::new(&Input::<String>::new().with_prompt("File path").interact().expect("IO error"))).ok()
@@ -190,13 +190,13 @@ pub fn open_signer_list() -> Option<SignersList> {
         None => return None,
     };
     if !path.is_dir() {
-        println!("It's is not a directory");
+        println_error(&format!("It's is not a directory"));
         return None;
     }
     match SignersList::open(path) {
         Ok(ans) => Some(ans),
         Err(err) => {
-            println!("Unexpected error while opening a signers list - {err}");
+            println_error(&format!("Unexpected error while opening a signers list - {err}"));
             None
         }
     }
@@ -296,7 +296,7 @@ pub fn create_encrypted_file() -> Option<EncryptedFile> {
     }) {
         Ok(ef) => Some(ef),
         Err(err) => {
-            println!("Unhandled error while trying to create encrypted file - {err}");
+            println_error(&format!("Unhandled error while trying to create encrypted file - {err}"));
             None
         }
     }
@@ -306,7 +306,7 @@ pub fn open_encrypted_file() -> Option<EncryptedFile> {
     let path = match check_path("Encrypted file path") {
         Some(path) => {
             if !path.is_file() {
-                println!("It's not a file");
+                println_error(&format!("It's not a file"));
                 return None;
             }
             path
@@ -316,7 +316,7 @@ pub fn open_encrypted_file() -> Option<EncryptedFile> {
     match EncryptedFile::new(path) {
         Ok(ef) => Some(ef),
         Err(err) => {
-            println!("Unhandled error while trying to open encrypted file - {err}");
+            println_error(&format!("Unhandled error while trying to open encrypted file - {err}"));
             None
         }
     }
@@ -406,4 +406,10 @@ pub fn get_name_from_path(path: &str) -> &str {
         p -= 1;
     }
     path.get(p..).unwrap()
+}
+
+// TODO do it as macro
+#[inline]
+pub fn println_error(msg: &str) {
+    println!("{}", console::Style::new().red().bold().apply_to(msg));
 }

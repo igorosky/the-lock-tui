@@ -2,7 +2,7 @@ use dialoguer::{Select, Input, FuzzySelect};
 use the_lock_lib::signers_list::SignersList;
 use crate::key_handler::public_rsa_key_interactions;
 
-use crate::utils::{create_signers_list, open_signer_list, get_public_rsa_key};
+use crate::utils::{create_signers_list, open_signer_list, get_public_rsa_key, println_error};
 
 pub fn handle_signers() {
     let mut pos = 0;
@@ -81,7 +81,7 @@ fn signers_list_manipulation(mut signers_list: SignersList) {
                     },
                 ) {
                     Ok(()) => println!("Signer successfully added"),
-                    Err(err) => println!("Unexpected error while adding signer to the list - {err}"),
+                    Err(err) => println_error(&format!("Unexpected error while adding signer to the list - {err}")),
                 }
             },
             1 => {
@@ -94,7 +94,7 @@ fn signers_list_manipulation(mut signers_list: SignersList) {
                 println!("Delete signer");
                 match signers_list.delete_signer(&choose_signer(&signers_list)) {
                     Ok(()) => println!("Signer has been deleted"),
-                    Err(err) => println!("Unhandled error while trying to delete sigener - {err}"),
+                    Err(err) => println_error(&format!("Unhandled error while trying to delete sigener - {err}")),
                 }
             },
             3 => {
@@ -104,7 +104,7 @@ fn signers_list_manipulation(mut signers_list: SignersList) {
                         println!("Got RSA public key");
                         public_rsa_key_interactions(key);
                     },
-                    Err(err) => println!("Unhandled error while trying to possess signer's key - {err}"),
+                    Err(err) => println_error(&format!("Unhandled error while trying to possess signer's key - {err}")),
                 }
             },
             _ => return,

@@ -1,7 +1,8 @@
 use dialoguer::{Select, FuzzySelect, MultiSelect};
+use indicatif::ProgressBar;
 use the_lock_lib::{EncryptedFile, directory_content::DirectoryContent, DecryptFileResult, DecryptFileAndVerifyResult, DecryptFileAndFindSignerResult};
 
-use crate::utils::{open_file, get_path, get_public_key, get_private_rsa_key, create_encrypted_file, open_encrypted_file, check_path, get_private_key, create_file_with_default, get_public_rsa_key, open_signer_list, list_content, create_file, get_zip_file_options, get_name_from_path};
+use crate::utils::{open_file, get_path, get_public_key, get_private_rsa_key, create_encrypted_file, open_encrypted_file, check_path, get_private_key, create_file_with_default, get_public_rsa_key, open_signer_list, list_content, create_file, get_zip_file_options, get_name_from_path, println_error};
 
 #[inline]
 fn get_encryption_mode() -> usize {
@@ -130,7 +131,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                 match src.metadata() {
                     Ok(metadata) => encrypted_file.set_zip_file_options(encrypted_file.zip_file_options().large_file(metadata.len() >= 4*1024*1024*1024)),
                     Err(err) => {
-                        println!("Couldn't read file size - {err}");
+                        println_error(&format!("Couldn't read file size - {err}"));
                         continue;
                     }
                 }
@@ -151,7 +152,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                 };
                 match result {
                     Ok(()) => println!("File successfully added"),
-                    Err(err) => println!("Error occured when trying to add a file - {err}"),
+                    Err(err) => println_error(&format!("Error occured when trying to add a file - {err}")),
                 }
             }
             1 => {
@@ -159,7 +160,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                     let src = match check_path("Path to directory which is suppoused to be encrypted") {
                         Some(dir) => {
                             if !dir.is_dir() {
-                                println!("It's not an directory");
+                                println_error(&format!("It's not an directory"));
                                 continue;
                             }
                             dir
@@ -171,44 +172,57 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                         Some(key) => key,
                         None => continue,
                     };
+                    let bar = ProgressBar::new(0);
                     let result =  match get_encryption_mode() {
-                        0 => encrypted_file.add_directory(src, &dst_path, &public_key),
-                        1 => encrypted_file.add_directory_and_sign(src, &dst_path, &public_key, &match get_private_rsa_key() {
+                        0 => encrypted_file.add_directory_callback(src, &dst_path, &public_key, |len| bar.set_length(len as u64),
+                        |src, dst, res| {
+                            match res {
+                                Ok(()) => bar.println(format!("{:?} saved to dst {}", src, dst)),
+                                Err(err) => bar.println(format!("Couldn't save {:?} to {} - {}", src, dst, err)),
+                            }
+                            bar.inc(1);
+                        }, |success| match success {
+                            true => bar.finish_and_clear(),
+                            false => bar.finish_and_clear(),
+                        }),
+                        1 => encrypted_file.add_directory_and_sign_callback(src, &dst_path, &public_key, &match get_private_rsa_key() {
                             Some(key) => key,
                             None => continue,
+                        }, |len| bar.set_length(len as u64), |src, dst, res| {
+                            match res {
+                                Ok(()) => bar.println(format!("{:?} saved to dst {}", src, dst)),
+                                Err(err) => bar.println(format!("Couldn't save {:?} to {} - {}", src, dst, err)),
+                            }
+                            bar.inc(1);
+                        }, |success| match success {
+                            true => bar.finish_and_clear(),
+                            false => bar.finish_and_clear(),
                         }),
                         _ => continue,
                     };
                     match result {
-                        Ok(results) => {
-                            for (path, result) in results {
-                                let path = path.to_str().unwrap_or("<unknown>");
-                                match result {
-                                    Ok(()) => println!("File {path} successfully added"),
-                                    Err(err) => println!("Adding file {path} failed - {err}"),
-                                }
-                            }
-                        },
-                        Err(err) => println!("Error occured when trying to add a directory - {err}"),
+                        Ok(_) => println!("Directory encrypted"),
+                        Err(err) => println_error(&format!("Error occured when trying to add a directory - {err}")),
                     }
             }
             2 => {
-                let private_key = match get_private_key() {
-                    Some(key) => key,
-                    None => continue,
-                };
                 let src = {
                     let content = list_of_files(match encrypted_file.get_directory_content() {
                         Ok(content) => content,
                         Err(err) => {
-                            println!("Couldn't read file content - {err}");
+                            println_error(&format!("Couldn't read file content - {err}"));
                             continue;
                         }
                     });
                     content[FuzzySelect::new()
-                        .items(&content)
-                        .interact()
-                        .expect("IO error")].clone()
+                    .with_prompt("File to decrypt")
+                    .items(&content)
+                    .interact()
+                    .expect("IO error")].clone()
+                };
+                let private_key = match get_private_key() {
+                    Some(key) => key,
+                    None => continue,
                 };
                 let dst = match create_file_with_default(get_name_from_path(&src).to_owned()) {
                     Some(file) => file,
@@ -228,68 +242,75 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                 };
             }
             3 => {
-                let private_key = match get_private_key() {
-                    Some(key) => key,
-                    None => continue,
-                };
-                let src = {
-                    let content = list_of_files(match encrypted_file.get_directory_content() {
-                        Ok(content) => content,
-                        Err(err) => {
-                            println!("Couldn't read file content - {err}");
-                            continue;
-                        }
-                    });
-                    content[FuzzySelect::new()
-                        .items(&content)
-                        .interact()
-                        .expect("IO error")].clone()
-                };
+                let src = get_path("Source path");
                 let dst = match check_path("Output path") {
                     Some(path) => path,
                     None => continue,
                 };
+                let mut private_key = match get_private_key() {
+                    Some(key) => key,
+                    None => continue,
+                };
+                if let Err(err) = private_key.rsa_precomput() {
+                    println_error(&format!("RSA precomputions failed - {}", err));
+                    continue;
+                }
+                let bar = ProgressBar::new(0);
                 match get_decryption_mode() {
                     0 => {
-                        match encrypted_file.decrypt_directory(&src, dst, &private_key) {
-                            Ok(results) => {
-                                println!("Directory has been decrypted with result:");
-                                for (name, result) in results {
-                                    print!("{name}");
-                                    decrypted_file_output(result);
-                                }
+                        match encrypted_file.decrypt_directory_callback(&src, dst, &private_key, |len| bar.set_length(len as u64),
+                        |src, dst, res| {
+                            match res {
+                                Ok(dig) => bar.println(format!("{} saved to dst {:?} - digest correctess: {}", src, dst, dig)),
+                                Err(err) => bar.println(format!("Couldn't save {} to {:?} - {}", src, dst, err)),
                             }
-                            Err(err) => println!("Unhandled error while decrypting directory - {err}"),
+                            bar.inc(1);
+                        }, |successfully| match successfully {
+                            true => bar.finish_and_clear(),
+                            false => bar.finish_and_clear(),
+                        }) {
+                            Ok(_) => println!("Directory decrypted"),
+                            Err(err) => println_error(&format!("Unhandled error while decrypting directory - {err}")),
                         };
                     }
                     1 => {
-                        match encrypted_file.decrypt_directory_and_verify(&src, dst, &private_key, &match get_public_rsa_key() {
+                        match encrypted_file.decrypt_directory_and_verify_callback(&src, dst, &private_key, &match get_public_rsa_key() {
                             Some(key) => key,
                             None => continue,
-                        }) {
-                            Ok(results) => {
-                                println!("Directory has been decrypted with result:");
-                                results.into_iter().for_each(|(name, result)| {
-                                    print!("{name}: ");
-                                    decrypted_file_and_verify_output(result);
-                                });
+                        },
+                        |len| bar.set_length(len as u64), |src, dst, res| {
+                            match res {
+                                Ok((dig, Ok(_))) => bar.println(format!("{} saved to dst {:?} - digest correctess: {}, signature is valid", src, dst, dig)),
+                                Ok((dig, Err(_))) => bar.println(format!("{} saved to dst {:?} - digest correctess: {}, signature is invalid", src, dst, dig)),
+                                Err(err) => bar.println(format!("Couldn't save {} to {:?} - {}", src, dst, err)),
                             }
-                            Err(err) => println!("Unhandled error while decrypting directory - {err}")
+                        },
+                        |successfully| match successfully {
+                            true => bar.finish_and_clear(),
+                            false => bar.finish_and_clear(),
+                        }) {
+                            Ok(_) => println!("Directory decrypted"),
+                            Err(err) => println_error(&format!("Unhandled error while decrypting directory - {err}")),
                         }
                     }
                     2 => {
-                        match encrypted_file.decrypt_directory_and_find_signer(&src, dst, &private_key, &match open_signer_list() {
+                        match encrypted_file.decrypt_directory_and_find_signer_callback(&src, dst, &private_key, &match open_signer_list() {
                             Some(sl) => sl,
                             None => continue,
-                        }) {
-                            Ok(results) => {
-                                println!("Directory has been decrypted with result:");
-                                for (name, result) in results {
-                                    print!("{name}");
-                                    decrypted_file_and_find_signer_output(result);
-                                }
+                        },
+                        |len| bar.set_length(len as u64),
+                        |src, dst, res| {
+                            match res {
+                                Ok((dig, signer)) => bar.println(format!("{} saved to dst {:?} - digest correctess: {}, signer: {}", src, dst, dig, signer.to_owned().unwrap_or("<UNKNOWN>".to_owned()))),
+                                Err(err) => bar.println(format!("Couldn't save {} to {:?} - {}", src, dst, err)),
                             }
-                            Err(err) => println!("Uhandled error while decrypting directory - {err}"),
+                        },
+                        |successfully| match successfully {
+                            true => bar.finish_and_clear(),
+                            false => bar.finish_and_clear(),
+                        }) {
+                            Ok(_) => println!("Directory decrypted"),
+                            Err(err) => println_error(&format!("Uhandled error while decrypting directory - {err}")),
                         }
                     }
                     _ => continue,
@@ -298,7 +319,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
             4 => list_content(match encrypted_file.get_directory_content() {
                 Ok(dc) => dc,
                 Err(err) => {
-                    println!("Unhandled error while getting file content - {err}");
+                    println_error(&format!("Unhandled error while getting file content - {err}"));
                     continue;
                 }
             }),
@@ -311,7 +332,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                     let files = list_of_files(match encrypted_file.get_directory_content() {
                         Ok(dc) => dc,
                         Err(err) => {
-                            println!("Unhandled error while getting file content - {err}");
+                            println_error(&format!("Unhandled error while getting file content - {err}"));
                             continue;
                         }
                     });
@@ -325,7 +346,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                 };
                 match encrypted_file.delete_path(output_file, &files_to_delete) {
                     Ok(()) => println!("File has been copied with indicated files omited"),
-                    Err(err) => println!("Unhandled error while copying files - {err}"),
+                    Err(err) => println_error(&format!("Unhandled error while copying files - {err}")),
                 }
             }
             6 => {

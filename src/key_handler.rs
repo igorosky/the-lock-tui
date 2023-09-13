@@ -1,7 +1,7 @@
 use dialoguer::Select;
 use the_lock_lib::{asymetric_key::{PrivateKey, PublicKey, MIN_RSA_KEY_SIZE}, rsa::{RsaPrivateKey, RsaPublicKey}};
 
-use crate::utils::{save, read, get_number_in_range};
+use crate::utils::{save, read, get_number_in_range, println_error};
 
 pub fn handle_key() {
     let mut pos = 0;
@@ -26,7 +26,7 @@ pub fn handle_key() {
                     ) {
                         Ok(ans) => ans,
                         Err(err) => {
-                            println!("Unexpected error - {err}");
+                            println_error(&format!("Unexpected error - {err}"));
                             continue;
                         }
                     });
@@ -75,7 +75,7 @@ fn private_key_interactions(key: PrivateKey) {
                 println!("Saving Key");
                 match save(&key) {
                     true => println!("Key saved"),
-                    false => println!("Failed to save a key"),
+                    false => println_error(&format!("Failed to save a key")),
                 }
             },
             1 => public_key_interactions(key.get_public_key()),
