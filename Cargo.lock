@@ -391,12 +391,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libaes"
-version = "0.6.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "884609db30d6c40a6bd8e0e22b0b5002546e4dcb53295d33fc700b1644b8a656"
-
-[[package]]
 name = "libc"
 version = "0.2.147"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -742,7 +736,7 @@ name = "serialize-with-password"
 version = "0.1.0"
 dependencies = [
  "argon2",
- "libaes",
+ "chacha20poly1305",
  "rmp-serde",
  "serde",
 ]
@@ -815,7 +809,7 @@ dependencies = [
 
 [[package]]
 name = "the-lock-lib"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "chacha20poly1305",
  "rand",

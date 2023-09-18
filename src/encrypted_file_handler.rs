@@ -1,8 +1,8 @@
 use dialoguer::{Select, FuzzySelect, MultiSelect};
 use indicatif::ProgressBar;
-use the_lock_lib::{EncryptedFile, directory_content::DirectoryContent, DecryptFileResult, DecryptFileAndVerifyResult, DecryptFileAndFindSignerResult};
+use the_lock_lib::{EncryptedFile, directory_content::{DirectoryContent, DirectoryContentPath}, DecryptFileResult, DecryptFileAndVerifyResult, DecryptFileAndFindSignerResult};
 
-use crate::utils::{open_file, get_path, get_public_key, get_private_rsa_key, create_encrypted_file, open_encrypted_file, check_path, get_private_key, create_file_with_default, get_public_rsa_key, open_signer_list, list_content, create_file, get_zip_file_options, get_name_from_path, println_error};
+use crate::utils::{open_file, get_path, get_public_key, get_private_rsa_key, create_encrypted_file, open_encrypted_file, check_path, get_private_key, create_file_with_default, get_public_rsa_key, open_signer_list, list_content, create_file, get_zip_file_options, println_error};
 
 #[inline]
 fn get_encryption_mode() -> usize {
@@ -135,7 +135,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                         continue;
                     }
                 }
-                let dst_path = get_path("Destination path");
+                let dst_path = DirectoryContentPath::from(get_path("Destination path"));
                 let public_key = match get_public_key() {
                     Some(key) => key,
                     None => continue,
@@ -167,14 +167,14 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                         },
                         None => continue,
                     };
-                    let dst_path = get_path("Destination path");
+                    let dst_path = DirectoryContentPath::from(get_path("Destination path"));
                     let public_key = match get_public_key() {
                         Some(key) => key,
                         None => continue,
                     };
                     let bar = ProgressBar::new(0);
                     let result =  match get_encryption_mode() {
-                        0 => encrypted_file.add_directory_callback(src, &dst_path, &public_key, |len| bar.set_length(len as u64),
+                        0 => encrypted_file.add_directory_callback(src, dst_path, &public_key, |len| bar.set_length(len as u64),
                         |src, dst, res| {
                             match res {
                                 Ok(()) => bar.println(format!("{:?} saved to dst {}", src, dst)),
@@ -185,8 +185,14 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                             true => bar.finish_and_clear(),
                             false => bar.finish_and_clear(),
                         }),
-                        1 => encrypted_file.add_directory_and_sign_callback(src, &dst_path, &public_key, &match get_private_rsa_key() {
-                            Some(key) => key,
+                        1 => encrypted_file.add_directory_and_sign_callback(src, dst_path, &public_key, &match get_private_rsa_key() {
+                            Some(mut key) => if let Err(err) = key.precompute() {
+                                println_error(&format!("RSA precomputions failed - {}", err));
+                                continue;
+                            }
+                            else {
+                                key
+                            },
                             None => continue,
                         }, |len| bar.set_length(len as u64), |src, dst, res| {
                             match res {
@@ -206,7 +212,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                     }
             }
             2 => {
-                let src = {
+                let src = DirectoryContentPath::from({
                     let content = list_of_files(match encrypted_file.get_directory_content() {
                         Ok(content) => content,
                         Err(err) => {
@@ -219,12 +225,12 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                     .items(&content)
                     .interact()
                     .expect("IO error")].clone()
-                };
+                });
                 let private_key = match get_private_key() {
                     Some(key) => key,
                     None => continue,
                 };
-                let dst = match create_file_with_default(get_name_from_path(&src).to_owned()) {
+                let dst = match create_file_with_default(src.file_name().expect("File has name?").to_owned()) { // TODO 
                     Some(file) => file,
                     None => continue,
                 };
@@ -242,23 +248,29 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                 };
             }
             3 => {
-                let src = get_path("Source path");
+                let src = DirectoryContentPath::from(get_path("Source path"));
                 let dst = match check_path("Output path") {
                     Some(path) => path,
                     None => continue,
                 };
-                let mut private_key = match get_private_key() {
-                    Some(key) => key,
+                let private_key = match get_private_key() {
+                    Some(mut key) => if let Err(err) = key.rsa_precomput() {
+                        println_error(&format!("RSA precomputions failed - {}", err));
+                        continue;
+                    }
+                    else {
+                        key
+                    },
                     None => continue,
                 };
-                if let Err(err) = private_key.rsa_precomput() {
-                    println_error(&format!("RSA precomputions failed - {}", err));
+                if let Err(err) = encrypted_file.get_directory_content() {
+                    println_error(&format!("Couldn't retrive directory content - {}", err));
                     continue;
                 }
                 let bar = ProgressBar::new(0);
                 match get_decryption_mode() {
                     0 => {
-                        match encrypted_file.decrypt_directory_callback(&src, dst, &private_key, |len| bar.set_length(len as u64),
+                        match encrypted_file.decrypt_directory_callback(src, dst, &private_key, |len| bar.set_length(len as u64),
                         |src, dst, res| {
                             match res {
                                 Ok(dig) => bar.println(format!("{} saved to dst {:?} - digest correctess: {}", src, dst, dig)),
@@ -274,16 +286,18 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                         };
                     }
                     1 => {
-                        match encrypted_file.decrypt_directory_and_verify_callback(&src, dst, &private_key, &match get_public_rsa_key() {
+                        match encrypted_file.decrypt_directory_and_verify_callback(src, dst, &private_key, &match get_public_rsa_key() {
                             Some(key) => key,
                             None => continue,
                         },
-                        |len| bar.set_length(len as u64), |src, dst, res| {
+                        |len| bar.set_length(len as u64),
+                        |src, dst, res| {
                             match res {
                                 Ok((dig, Ok(_))) => bar.println(format!("{} saved to dst {:?} - digest correctess: {}, signature is valid", src, dst, dig)),
                                 Ok((dig, Err(_))) => bar.println(format!("{} saved to dst {:?} - digest correctess: {}, signature is invalid", src, dst, dig)),
                                 Err(err) => bar.println(format!("Couldn't save {} to {:?} - {}", src, dst, err)),
                             }
+                            bar.inc(1);
                         },
                         |successfully| match successfully {
                             true => bar.finish_and_clear(),
@@ -294,7 +308,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                         }
                     }
                     2 => {
-                        match encrypted_file.decrypt_directory_and_find_signer_callback(&src, dst, &private_key, &match open_signer_list() {
+                        match encrypted_file.decrypt_directory_and_find_signer_callback(src, dst, &private_key, &match open_signer_list() {
                             Some(sl) => sl,
                             None => continue,
                         },
@@ -304,6 +318,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                                 Ok((dig, signer)) => bar.println(format!("{} saved to dst {:?} - digest correctess: {}, signer: {}", src, dst, dig, signer.to_owned().unwrap_or("<UNKNOWN>".to_owned()))),
                                 Err(err) => bar.println(format!("Couldn't save {} to {:?} - {}", src, dst, err)),
                             }
+                            bar.inc(1);
                         },
                         |successfully| match successfully {
                             true => bar.finish_and_clear(),
@@ -328,7 +343,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                     Some(file) => file,
                     None => continue,
                 };
-                let files_to_delete: Vec<String> = {
+                let files_to_delete: Vec<DirectoryContentPath> = {
                     let files = list_of_files(match encrypted_file.get_directory_content() {
                         Ok(dc) => dc,
                         Err(err) => {
@@ -341,7 +356,7 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                         .interact()
                         .expect("IO error")
                         .into_iter()
-                        .map(|pos| files[pos].clone())
+                        .map(|pos| DirectoryContentPath::from(files[pos].as_str()))
                         .collect()
                 };
                 match encrypted_file.delete_path(output_file, &files_to_delete) {

@@ -144,7 +144,7 @@ pub fn read<T: for<'a> Deserialize<'a>>(prompt: &str) -> Option<T> {
                             .expect("IO error")
                             .as_bytes()
             );
-            while let Err(serialize_with_password::Error::WrongPassword) = ans {
+            while let Err(serialize_with_password::Error::ChaCha20Error(_)) = ans {
                 ans = deserialize_serde(
                     &buf,
                     Password::new()
@@ -395,17 +395,6 @@ pub fn get_zip_file_options() -> FileOptions {
             }
         };
     }
-}
-
-pub fn get_name_from_path(path: &str) -> &str {
-    let mut p = path.len();
-    for c in path.chars().rev() {
-        if c == '/' || c == '\\' {
-            break;
-        }
-        p -= 1;
-    }
-    path.get(p..).unwrap()
 }
 
 // TODO do it as macro

@@ -12,6 +12,10 @@ use encrypted_file_handler::handle_encrypted_file;
 use key_handler::handle_key;
 use signer_list_handler::handle_signers;
 
+/***
+ * TODO catch some CTRL+C
+ */
+
 fn main() {
     let mut pos = 0;
     loop {
