@@ -397,8 +397,18 @@ pub fn get_zip_file_options() -> FileOptions {
     }
 }
 
+#[inline]
+pub fn error_font(msg: &str) -> console::StyledObject<&str> {
+    console::Style::new().red().bold().apply_to(msg)
+}
+
+#[inline]
+pub fn green_font(msg: &str) -> console::StyledObject<&str> {
+    console::Style::new().green().bold().apply_to(msg)
+}
+
 // TODO do it as macro
 #[inline]
 pub fn println_error(msg: &str) {
-    println!("{}", console::Style::new().red().bold().apply_to(msg));
+    println!("{}", error_font(msg));
 }

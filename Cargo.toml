@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 the-lock-lib = { path = "../the-lock-lib", features = ["signers-list", "zstd", "bzip2"] }
-serialize-with-password = { path = "../other-libs/serialize-with-password", features = ["serde"] }
+serialize-with-password = { version = "0.1.0", features = ["serde"] }
 dialoguer = { version = "0.10.4", default-features = false, features = ["password", "fuzzy-select"] }
 console = "0.15.7"
 indicatif = "0.17.6"

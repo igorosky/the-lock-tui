@@ -1,8 +1,10 @@
+use std::fs::File;
+
 use dialoguer::{Select, FuzzySelect, MultiSelect};
 use indicatif::ProgressBar;
-use the_lock_lib::{EncryptedFile, directory_content::{DirectoryContent, DirectoryContentPath}, DecryptFileResult, DecryptFileAndVerifyResult, DecryptFileAndFindSignerResult};
+use the_lock_lib::{EncryptedFile, directory_content::{DirectoryContent, DirectoryContentPath}, DecryptFileResult, DecryptFileAndVerifyResult, DecryptFileAndFindSignerResult, error::EncryptedFileError};
 
-use crate::utils::{open_file, get_path, get_public_key, get_private_rsa_key, create_encrypted_file, open_encrypted_file, check_path, get_private_key, create_file_with_default, get_public_rsa_key, open_signer_list, list_content, create_file, get_zip_file_options, println_error};
+use crate::utils::{open_file, get_path, get_public_key, get_private_rsa_key, create_encrypted_file, open_encrypted_file, check_path, get_private_key, create_file_with_default, get_public_rsa_key, open_signer_list, list_content, create_file, get_zip_file_options, println_error, green_font, error_font};
 
 #[inline]
 fn get_encryption_mode() -> usize {
@@ -78,8 +80,9 @@ fn decrypted_file_output(result: DecryptFileResult) {
     match result {
         Ok(true) => println!("File has been decrypted and it's digiest is valid"),
         Ok(false) => println!("File has been decrypted but it's digest is invalid"),
-        Err(err) => println!("Unhandled error while decrypting file - {err}"),
-    };
+        Err(EncryptedFileError::AsymetricKeyError(err)) => println_error(&format!("Decryption error, probably key is invalid - {}", err)),
+        Err(err) => println_error(&format!("Unhandled error while decrypting file - {err}")),
+    }
 }
 
 #[inline]
@@ -89,7 +92,8 @@ fn decrypted_file_and_find_signer_output(result: DecryptFileAndFindSignerResult)
         Ok((false, Some(name))) => println!("File has been decrypted, it's digiest is invalid, signer is: {name}"),
         Ok((true, None)) => println!("File has been decrypted, it's digiest is valid, signer hasn't been found"),
         Ok((false, None)) => println!("File has been decrypted, it's digiest is invalid, signer hasn't been found"),
-        Err(err) => println!("Uhandled error while decrypting file - {err}"),
+        Err(EncryptedFileError::AsymetricKeyError(err)) => println_error(&format!("Decryption error, probably key is invalid - {}", err)),
+        Err(err) => println_error(&format!("Uhandled error while decrypting file - {err}")),
     }
 }
 
@@ -100,7 +104,7 @@ fn decrypted_file_and_verify_output(result: DecryptFileAndVerifyResult) {
         Ok((false, Ok(()))) => println!("File has been decrypted, signature is valid, but digest not"),
         Ok((true, Err(err))) => println!("File has been decrypted, digest is valid, but signature not - {err}"),
         Ok((false, Err(err))) => println!("File has been decrypted, digest nor signature are valid - {err}"),
-        Err(err) => println!("Uhandled error while decrypting file - {err}"),
+        Err(err) => println_error(&format!("Uhandled error while decrypting file - {err}")),
     }
 }
 
@@ -272,15 +276,13 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                     0 => {
                         match encrypted_file.decrypt_directory_callback(src, dst, &private_key, |len| bar.set_length(len as u64),
                         |src, dst, res| {
-                            match res {
-                                Ok(dig) => bar.println(format!("{} saved to dst {:?} - digest correctess: {}", src, dst, dig)),
-                                Err(err) => bar.println(format!("Couldn't save {} to {:?} - {}", src, dst, err)),
-                            }
                             bar.inc(1);
-                        }, |successfully| match successfully {
-                            true => bar.finish_and_clear(),
-                            false => bar.finish_and_clear(),
-                        }) {
+                            match res {
+                                Ok(true) => bar.suspend(|| println!("{} saved to destination {:?} - digest is correct", src, dst)),
+                                Ok(false) => bar.suspend(|| println_error(&format!("{} saved to destination {:?} - digest is INCORRECT", src, dst))),
+                                Err(err) => bar.suspend(|| println_error(&format!("Couldn't save {} to {:?} - {}", src, dst, err))),
+                            }
+                        }, |_| bar.finish_and_clear()) {
                             Ok(_) => println!("Directory decrypted"),
                             Err(err) => println_error(&format!("Unhandled error while decrypting directory - {err}")),
                         };
@@ -292,17 +294,32 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                         },
                         |len| bar.set_length(len as u64),
                         |src, dst, res| {
+                            bar.inc(1);
                             match res {
-                                Ok((dig, Ok(_))) => bar.println(format!("{} saved to dst {:?} - digest correctess: {}, signature is valid", src, dst, dig)),
-                                Ok((dig, Err(_))) => bar.println(format!("{} saved to dst {:?} - digest correctess: {}, signature is invalid", src, dst, dig)),
+                                Ok((digest, signature)) => bar.println(format!("{} saved to dst {:?} - digest is {}, signature is {}", src, dst,
+                                    match digest {
+                                        true => green_font("CORRECT"),
+                                        false => error_font("INCORRECT"),
+                                    },
+                                    match signature.is_ok() {
+                                        true => green_font("VALID"),
+                                        false => error_font("INVALID"),
+                                    })),
+                                Err(EncryptedFileError::FileIsNotSigned) => {
+                                    bar.println(format!("File {} is not signed, decrypting it without verification", src));
+                                    let result = encrypted_file.decrypt_file(src, match File::create(dst) {
+                                        Ok(file) => file,
+                                        Err(err) => {
+                                            bar.suspend(|| println_error(&format!("Couldn't create file {} - {}", dst, err)));
+                                            return;
+                                        }
+                                    }, &private_key);
+                                    bar.suspend(|| decrypted_file_output(result));
+                                }
                                 Err(err) => bar.println(format!("Couldn't save {} to {:?} - {}", src, dst, err)),
                             }
-                            bar.inc(1);
                         },
-                        |successfully| match successfully {
-                            true => bar.finish_and_clear(),
-                            false => bar.finish_and_clear(),
-                        }) {
+                        |_| bar.finish_and_clear()) {
                             Ok(_) => println!("Directory decrypted"),
                             Err(err) => println_error(&format!("Unhandled error while decrypting directory - {err}")),
                         }
@@ -314,16 +331,28 @@ fn encrypted_file_interactions(mut encrypted_file: EncryptedFile) {
                         },
                         |len| bar.set_length(len as u64),
                         |src, dst, res| {
+                            bar.inc(1);
                             match res {
-                                Ok((dig, signer)) => bar.println(format!("{} saved to dst {:?} - digest correctess: {}, signer: {}", src, dst, dig, signer.to_owned().unwrap_or("<UNKNOWN>".to_owned()))),
+                                Ok((digest, signer)) => bar.println(format!("{} saved to dst {:?} - digest is {}, signer: {}", src, dst, 
+                                    match digest {
+                                        true => green_font("VALID"),
+                                        false => error_font("INVALID"),
+                                    }, signer.to_owned().unwrap_or("<UNKNOWN>".to_owned()))),
+                                Err(EncryptedFileError::FileIsNotSigned) => {
+                                    bar.println(format!("File {} is not signed, decrypting it without verification", src));
+                                    let result = encrypted_file.decrypt_file(src, match File::create(dst) {
+                                        Ok(file) => file,
+                                        Err(err) => {
+                                            bar.println(format!("Couldn't create file {} - {}", dst, err));
+                                            return;
+                                        }
+                                    }, &private_key);
+                                    bar.suspend(|| decrypted_file_output(result));
+                                }
                                 Err(err) => bar.println(format!("Couldn't save {} to {:?} - {}", src, dst, err)),
                             }
-                            bar.inc(1);
                         },
-                        |successfully| match successfully {
-                            true => bar.finish_and_clear(),
-                            false => bar.finish_and_clear(),
-                        }) {
+                        |_| bar.finish_and_clear()) {
                             Ok(_) => println!("Directory decrypted"),
                             Err(err) => println_error(&format!("Uhandled error while decrypting directory - {err}")),
                         }
