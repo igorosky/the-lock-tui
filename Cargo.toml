@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-the-lock-lib = { path = "../the-lock-lib", features = ["signers-list", "zstd", "bzip2"] }
+the-lock-lib = { version = "0.2.3", features = ["signers-list", "zstd", "bzip2"] }
 serialize-with-password = { version = "0.1.0", features = ["serde"] }
-dialoguer = { version = "0.10.4", default-features = false, features = ["password", "fuzzy-select"] }
+dialoguer = { version = "0.11.0", default-features = false, features = ["password", "fuzzy-select"] }
 console = "0.15.7"
 indicatif = "0.17.6"
 
